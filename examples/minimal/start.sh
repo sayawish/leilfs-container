@@ -42,8 +42,11 @@ print_summary_table() {
   local floating_ip="$4"
   local cgi_ip="$5"
   local cgi_port="$6"
-  local cgi_url="$7"
+  local cgi_url_local="$7"
+  local cgi_url_host="$8"
 
+  printf "\n%-22s | %s\n" "Field" "Value"
+  printf "%-22s-+-%s\n" "----------------------" "-----------------------------------------------"
   printf "\n%-22s | %s\n" "Field" "Value"
   printf "%-22s-+-%s\n" "----------------------" "-----------------------------------------------"
   printf "%-22s | %s\n" "Project" "${project}"
@@ -52,7 +55,8 @@ print_summary_table() {
   printf "%-22s | %s\n" "Master floating IP" "${floating_ip}"
   printf "%-22s | %s\n" "CGI internal IP" "${cgi_ip}"
   printf "%-22s | %s\n" "CGI external port" "${cgi_port}"
-  printf "%-22s | %s\n" "CGI URL" "${cgi_url}"
+  printf "%-22s | %s\n" "CGI URL (Local)" "${cgi_url_local}"
+  printf "%-22s | %s\n" "CGI URL (Host)" "${cgi_url_host}"
 }
 
 export REGISTRY="${REGISTRY:-saywish-mini-al:443}"
@@ -103,6 +107,7 @@ docker compose \
 
 MASTER_INTERNAL_IP="$(container_ip "${MASTER_CONTAINER}" "${CLUSTER_NETWORK_NAME}")"
 CGI_INTERNAL_IP="$(container_ip "${CGI_CONTAINER}" "${CLUSTER_NETWORK_NAME}")"
+
 print_summary_table \
   "${PROJECT_NAME}" \
   "${CLUSTER_NETWORK_NAME}" \
@@ -110,4 +115,5 @@ print_summary_table \
   "${FLOATING_IP}" \
   "${CGI_INTERNAL_IP}" \
   "${CGI_EXTERNAL_PORT}" \
-  "http://127.0.0.1:${CGI_EXTERNAL_PORT}/sfs.cgi?masterhost=sfsmaster&masterport=9421"
+  "http://127.0.0.1:${CGI_EXTERNAL_PORT}/sfs.cgi?masterhost=sfsmaster&masterport=9421" \
+  "http://${HOSTNAME}:${CGI_EXTERNAL_PORT}/sfs.cgi?masterhost=sfsmaster&masterport=9421"
