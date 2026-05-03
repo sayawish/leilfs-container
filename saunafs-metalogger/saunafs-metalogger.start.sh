@@ -6,6 +6,7 @@ TARGET_CONF_DIR="/etc/saunafs"
 DEFAULT_CONF_SRC_DIR="/usr/share/doc/saunafs-metalogger/examples"
 TARGET_DATA_DIR="/var/lib/saunafs"
 SAUNAFS_USER="saunafs"
+MASTER_HOST="${MASTER_HOST:-master}"
 
 echo "Ensuring LeilFS Metalogger directories and configurations..."
 
@@ -25,11 +26,13 @@ else
 	echo "Existing '${TARGET_CONF_DIR}/sfsmetalogger.cfg' found."
 fi
 
-# Ensure MASTER_HOST points to the correct service name.
-# This is needed because 'master' is the hostname of the service container running the master.
-if grep -q '^# *MASTER_HOST *= *sfsmaster' "${TARGET_CONF_DIR}/sfsmetalogger.cfg"; then
-    echo "Setting MASTER_HOST to 'master' in sfsmetalogger.cfg"
-    sed -i 's/^# *MASTER_HOST *= *sfsmaster/MASTER_HOST = master/' "${TARGET_CONF_DIR}/sfsmetalogger.cfg"
+# Ensure MASTER_HOST points to the configured master hostname.
+if grep -Eq '^[#[:space:]]*MASTER_HOST[[:space:]]*=' "${TARGET_CONF_DIR}/sfsmetalogger.cfg"; then
+    echo "Setting MASTER_HOST to '${MASTER_HOST}' in sfsmetalogger.cfg"
+    sed -i -E "s|^[#[:space:]]*MASTER_HOST[[:space:]]*=.*|MASTER_HOST = ${MASTER_HOST}|" "${TARGET_CONF_DIR}/sfsmetalogger.cfg"
+else
+    echo "Adding MASTER_HOST = ${MASTER_HOST} to sfsmetalogger.cfg"
+    printf '\nMASTER_HOST = %s\n' "${MASTER_HOST}" >> "${TARGET_CONF_DIR}/sfsmetalogger.cfg"
 fi
 
 mkdir -p "${TARGET_DATA_DIR}"

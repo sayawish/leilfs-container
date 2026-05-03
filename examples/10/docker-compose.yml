@@ -1,0 +1,82 @@
+services:
+  master:
+    image: ${REGISTRY:-saywish-mini-al:443}/${PROJECT:-leilfs}/saunafs-master:${LEILFS_TAG:-ubuntu-24.04-leilfs-5.9.0-1-main}
+    pull_policy: always
+    cap_add:
+      - NET_ADMIN
+    extra_hosts:
+      - "sfsmaster:${FLOATING_IP:-172.32.0.10}"
+    networks:
+      leilfsnet:
+        ipv4_address: ${MASTER1_IP:-172.32.0.11}
+
+  metalogger:
+    image: ${REGISTRY:-saywish-mini-al:443}/${PROJECT:-leilfs}/saunafs-metalogger:${LEILFS_TAG:-ubuntu-24.04-leilfs-5.9.0-1-main}
+    pull_policy: always
+    depends_on:
+      - master
+    environment:
+      MASTER_HOST: ${MASTER_HOST:-sfsmaster}
+    extra_hosts:
+      - "sfsmaster:${FLOATING_IP:-172.32.0.10}"
+    networks:
+      - leilfsnet
+
+  cgi:
+    image: ${REGISTRY:-saywish-mini-al:443}/${PROJECT:-leilfs}/saunafs-cgiserver:${LEILFS_TAG:-ubuntu-24.04-leilfs-5.9.0-1-main}
+    pull_policy: always
+    depends_on:
+      - master
+    command: ["/usr/bin/python3", "/usr/sbin/saunafs-cgiserver", "-v", "-P", "9425"]
+    extra_hosts:
+      - "sfsmaster:${FLOATING_IP:-172.32.0.10}"
+    networks:
+      - leilfsnet
+      - cgifront
+
+  cgi-publish:
+    image: alpine/socat
+    depends_on:
+      - cgi
+    command: ["-d", "-d", "TCP-LISTEN:9425,reuseaddr,fork", "TCP:cgi:9425"]
+    ports:
+      - "${CGI_EXTERNAL_PORT:-29435}:9425"
+    networks:
+      - cgifront
+
+  chunkserver:
+    image: ${REGISTRY:-saywish-mini-al:443}/${PROJECT:-leilfs}/saunafs-chunkserver:${LEILFS_TAG:-ubuntu-24.04-leilfs-5.9.0-1-main}
+    pull_policy: always
+    depends_on:
+      - master
+    environment:
+      MASTER_HOST: ${MASTER_HOST:-sfsmaster}
+      SAUNAFS_HDD_COUNT: ${SAUNAFS_HDD_COUNT:-10}
+    extra_hosts:
+      - "sfsmaster:${FLOATING_IP:-172.32.0.10}"
+    networks:
+      - leilfsnet
+
+  client:
+    image: ${REGISTRY:-saywish-mini-al:443}/${PROJECT:-leilfs}/saunafs-client:${LEILFS_TAG:-ubuntu-24.04-leilfs-5.9.0-1-main}
+    pull_policy: always
+    depends_on:
+      - master
+    command: ["/mnt/saunafs", "-H", "${MASTER_HOST:-sfsmaster}", "-P", "9421", "-S", "/"]
+    devices:
+      - /dev/fuse
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
+    extra_hosts:
+      - "sfsmaster:${FLOATING_IP:-172.32.0.10}"
+    networks:
+      - leilfsnet
+
+networks:
+  leilfsnet:
+    external: true
+    name: ${CLUSTER_NETWORK_NAME:-leilfs-10-net}
+  cgifront:
+    driver: bridge

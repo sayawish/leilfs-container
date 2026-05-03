@@ -6,7 +6,19 @@ LABEL maintainer="hello@leil.io"
 
 # Install required packages
 RUN apt-get update && \
-	apt-get install -y --no-install-recommends gnupg wget dirmngr util-linux dialog ca-certificates && \
+	apt-get install -y --no-install-recommends \
+		ca-certificates \
+		dialog \
+		dirmngr \
+		gnupg \
+		grc \
+		iproute2 \
+		iputils-ping \
+		nano \
+		tmux \
+		util-linux \
+		vim \
+		wget && \
 	yes | unminimize && \
 	apt-get clean && rm -rf /var/lib/apt/lists/*
 

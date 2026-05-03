@@ -6,6 +6,8 @@ TARGET_CONF_DIR="/etc/saunafs"
 DEFAULT_CONF_SRC_DIR="/usr/share/doc/saunafs-chunkserver/examples"
 TARGET_DATA_DIR="/var/lib/saunafs" # For chunkserver's own operational data/logs, if any
 SAUNAFS_USER="saunafs"
+MASTER_HOST="${MASTER_HOST:-master}"
+SAUNAFS_HDD_COUNT="${SAUNAFS_HDD_COUNT:-0}"
 
 CONFIGURED_HDD_PATHS=()
 
@@ -24,11 +26,13 @@ if [ ! -f "${TARGET_CONF_DIR}/sfschunkserver.cfg" ]; then
 	fi
 fi
 
-# Ensure MASTER_HOST points to the correct service name.
-# This is needed because 'master' is the hostname of the service container running the master.
-if grep -q '^# *MASTER_HOST *= *sfsmaster' "${TARGET_CONF_DIR}/sfschunkserver.cfg"; then
-    echo "Setting MASTER_HOST to 'master' in sfschunkserver.cfg"
-    sed -i 's/^# *MASTER_HOST *= *sfsmaster/MASTER_HOST = master/' "${TARGET_CONF_DIR}/sfschunkserver.cfg"
+# Ensure MASTER_HOST points to the configured master hostname.
+if grep -Eq '^[#[:space:]]*MASTER_HOST[[:space:]]*=' "${TARGET_CONF_DIR}/sfschunkserver.cfg"; then
+    echo "Setting MASTER_HOST to '${MASTER_HOST}' in sfschunkserver.cfg"
+    sed -i -E "s|^[#[:space:]]*MASTER_HOST[[:space:]]*=.*|MASTER_HOST = ${MASTER_HOST}|" "${TARGET_CONF_DIR}/sfschunkserver.cfg"
+else
+    echo "Adding MASTER_HOST = ${MASTER_HOST} to sfschunkserver.cfg"
+    printf '\nMASTER_HOST = %s\n' "${MASTER_HOST}" >> "${TARGET_CONF_DIR}/sfschunkserver.cfg"
 fi
 
 # Always ensure a base sfshdd.cfg is present, copy from default if not there.
@@ -42,6 +46,19 @@ if [ ! -f "${TARGET_CONF_DIR}/sfshdd.cfg" ]; then
 		echo "WARNING: Default '${DEFAULT_CONF_SRC_DIR}/sfshdd.cfg' not found. Creating an empty one."
 		touch "${TARGET_CONF_DIR}/sfshdd.cfg"
 	fi
+fi
+
+if ! [[ "${SAUNAFS_HDD_COUNT}" =~ ^[0-9]+$ ]]; then
+	echo "ERROR: SAUNAFS_HDD_COUNT must be a non-negative integer, got '${SAUNAFS_HDD_COUNT}'."
+	exit 1
+fi
+
+if [ "${SAUNAFS_HDD_COUNT}" -gt 0 ]; then
+	echo "Ensuring ${SAUNAFS_HDD_COUNT} volatile HDD directories exist under /mnt ..."
+	for i in $(seq 1 "${SAUNAFS_HDD_COUNT}"); do
+		hdd_path=$(printf "/mnt/hdd%03d" "${i}")
+		mkdir -p "${hdd_path}"
+	done
 fi
 
 echo "Detecting and configuring HDD paths from /mnt/hdd* ..."

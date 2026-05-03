@@ -57,6 +57,42 @@ To see all built images:
 docker images | grep saunafs
 ```
 
+## Publishing To Harbor
+
+The repository includes [`publish.sh`](/home/aneutrino/git/leilfs-container/publish.sh), which builds the base image and all service images, then pushes them to a Harbor project.
+
+Current distro support in this repository is limited to Ubuntu `22.04` and `24.04`. The base Dockerfile does not currently support Ubuntu `26.04`.
+
+`publish.sh` validates the requested LeilFS version against the public package repository at `repo.leil.io`. If `--saunafs-version` is omitted, it fetches the list of available versions for the selected Ubuntu release and prompts you to choose one interactively.
+
+Example flow for a Harbor registry running at `https://saywish-mini-al` with a Harbor project named `leilfs`:
+
+```sh
+docker login saywish-mini-al:443
+./publish.sh --saunafs-version 5.8.0-1 --distro 24.04 --registry saywish-mini-al:443 --project leilfs
+```
+
+For Docker image references, use `saywish-mini-al:443`, not just `saywish-mini-al`. A bare hostname without `.` or `:` is interpreted by Docker as Docker Hub, not as a private registry.
+
+You can also omit `--saunafs-version` and choose from the available repo versions:
+
+```sh
+./publish.sh --distro 24.04 --registry saywish-mini-al:443 --project leilfs
+```
+
+By default, `publish.sh` uses the current git branch in the remote image tag. For example, on branch `main` it will push:
+
+```text
+saywish-mini-al:443/leilfs/saunafs-master:ubuntu-24.04-leilfs-5.8.0-1-main
+saywish-mini-al:443/leilfs/saunafs-client:ubuntu-24.04-leilfs-5.8.0-1-main
+```
+
+You can override the branch label explicitly:
+
+```sh
+./publish.sh --saunafs-version 5.8.0-1 --distro 24.04 --registry saywish-mini-al:443 --project leilfs --branch master
+```
+
 ---
 
 ## Usage

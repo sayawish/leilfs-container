@@ -1,16 +1,141 @@
 #!/bin/bash
 set -e
 
+REQUIRED_PACKAGES=(
+  saunafs-master
+  saunafs-metalogger
+  saunafs-cgiserv
+  saunafs-chunkserver
+  saunafs-client
+  saunafs-adm
+)
 
 usage() {
-  echo "Usage: $0 --saunafs-version <version> --distro <distro> [--registry <registry>]"
-  echo "If --registry is not provided, defaults to registry.leil.io/public"
-  echo "Example: $0 --saunafs-version 5.8.0-1 --distro 24.04"
+  echo "Usage: $0 [--saunafs-version <version>] --distro <distro> [--registry <registry>] [--project <project>] [--branch <branch>]"
+  echo "If --registry is not provided, defaults to saywish-mini-al:443"
+  echo "If --project is not provided, defaults to leilfs"
+  echo "If --branch is not provided, the current git branch is used"
+  echo "If --saunafs-version is not provided, the script will query repo.leil.io and ask you to choose"
+  echo "Example: $0 --saunafs-version 5.8.0-1 --distro 24.04 --registry saywish-mini-al:443 --project leilfs"
   exit 1
 }
 
-# Default registry
-REGISTRY="registry.leil.io/public"
+get_codename() {
+  case "$1" in
+    22.04) echo "jammy" ;;
+    24.04) echo "noble" ;;
+    *)
+      echo "Unsupported distro: $1" >&2
+      echo "This repository currently supports only 22.04 and 24.04." >&2
+      exit 1
+      ;;
+  esac
+}
+
+print_available_versions() {
+  local versions=("$@")
+  local version
+
+  echo "Available LeilFS versions for Ubuntu $DISTRO:"
+  for version in "${versions[@]}"; do
+    echo "  - $version"
+  done
+}
+
+fetch_available_versions() {
+  local codename="$1"
+  local repo_url="https://repo.leil.io/repository/saunafs-ubuntu-$DISTRO/dists/$codename/main/binary-amd64/Packages.gz"
+  local package_regex
+
+  package_regex="$(printf "%s|" "${REQUIRED_PACKAGES[@]}")"
+  package_regex="${package_regex%|}"
+
+  mapfile -t AVAILABLE_VERSIONS < <(
+    curl -fsSL "$repo_url" \
+      | gzip -dc \
+      | awk -v package_regex="$package_regex" -v expected_count="${#REQUIRED_PACKAGES[@]}" '
+          BEGIN {
+            RS = ""
+            split(package_regex, package_list, "|")
+            for (i in package_list) {
+              required[package_list[i]] = 1
+            }
+          }
+          {
+            pkg = ""
+            ver = ""
+            n = split($0, lines, "\n")
+            for (i = 1; i <= n; i++) {
+              if (lines[i] ~ /^Package: /) {
+                pkg = substr(lines[i], 10)
+              } else if (lines[i] ~ /^Version: /) {
+                ver = substr(lines[i], 10)
+              }
+            }
+            if (pkg in required && ver != "") {
+              key = ver SUBSEP pkg
+              if (!(key in seen)) {
+                seen[key] = 1
+                counts[ver]++
+              }
+            }
+          }
+          END {
+            for (ver in counts) {
+              if (counts[ver] == expected_count) {
+                print ver
+              }
+            }
+          }
+        ' \
+      | sort -r -V
+  )
+
+  if [[ "${#AVAILABLE_VERSIONS[@]}" -eq 0 ]]; then
+    echo "Failed to determine available LeilFS versions from $repo_url" >&2
+    exit 1
+  fi
+}
+
+ensure_valid_version() {
+  local requested_version="$1"
+  local version
+
+  for version in "${AVAILABLE_VERSIONS[@]}"; do
+    if [[ "$version" == "$requested_version" ]]; then
+      return 0
+    fi
+  done
+
+  echo "Requested LeilFS version '$requested_version' is not available for Ubuntu $DISTRO." >&2
+  print_available_versions "${AVAILABLE_VERSIONS[@]}" >&2
+  exit 1
+}
+
+choose_version_interactively() {
+  if [[ ! -t 0 ]]; then
+    echo "No --saunafs-version provided and no interactive terminal is available." >&2
+    print_available_versions "${AVAILABLE_VERSIONS[@]}" >&2
+    exit 1
+  fi
+
+  print_available_versions "${AVAILABLE_VERSIONS[@]}"
+  echo
+  echo "Select the LeilFS version to build:"
+
+  PS3="Enter selection number: "
+  select selected_version in "${AVAILABLE_VERSIONS[@]}"; do
+    if [[ -n "$selected_version" ]]; then
+      SAUNAFS_VERSION="$selected_version"
+      break
+    fi
+    echo "Invalid selection."
+  done
+}
+
+# Default Harbor target
+REGISTRY="saywish-mini-al:443"
+PROJECT="leilfs"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -27,18 +152,53 @@ while [[ $# -gt 0 ]]; do
       REGISTRY="$2"
       shift 2
       ;;
+    --project)
+      PROJECT="$2"
+      shift 2
+      ;;
+    --branch)
+      BRANCH="$2"
+      shift 2
+      ;;
     *)
       usage
       ;;
   esac
 done
 
-if [[ -z "$SAUNAFS_VERSION" || -z "$DISTRO" ]]; then
+if [[ -z "$DISTRO" ]]; then
   usage
 fi
 
+if [[ "$REGISTRY" != *.* && "$REGISTRY" != *:* && "$REGISTRY" != "localhost" ]]; then
+  echo "Registry '$REGISTRY' looks like a bare hostname."
+  echo "Docker will interpret that as Docker Hub, not your Harbor registry."
+  echo "Use a registry value like 'saywish-mini-al:443' or another hostname containing a dot."
+  exit 1
+fi
+
+CODENAME="$(get_codename "$DISTRO")"
+fetch_available_versions "$CODENAME"
+
+if [[ -z "$SAUNAFS_VERSION" ]]; then
+  choose_version_interactively
+else
+  ensure_valid_version "$SAUNAFS_VERSION"
+fi
+
+if [[ -z "$BRANCH" ]]; then
+  BRANCH="$(git branch --show-current 2>/dev/null || true)"
+fi
+
+if [[ -z "$BRANCH" ]]; then
+  BRANCH="detached"
+fi
+
 TAG_SUFFIX="ubuntu-$DISTRO"
-BASE_IMAGE="saunafs-base:ubuntu-$DISTRO"
+BASE_IMAGE="saunafs-base:$TAG_SUFFIX"
+REMOTE_BASE_IMAGE="$REGISTRY/$PROJECT/saunafs-base:$TAG_SUFFIX"
+REMOTE_TAG="ubuntu-$DISTRO-leilfs-$SAUNAFS_VERSION-$BRANCH"
+COMPONENTS=(master metalogger cgiserver chunkserver client)
 
 # Docker login if credentials are present
 if [[ -n "$DOCKER_USER" && -n "$DOCKER_PASS" ]]; then
@@ -49,6 +209,10 @@ fi
 
 echo "Building base image: $BASE_IMAGE"
 docker build -t "$BASE_IMAGE" --build-arg BASE_IMAGE="ubuntu:$DISTRO" ./saunafs-base
+echo "Tagging $BASE_IMAGE as $REMOTE_BASE_IMAGE"
+docker tag "$BASE_IMAGE" "$REMOTE_BASE_IMAGE"
+echo "Pushing $REMOTE_BASE_IMAGE"
+docker push "$REMOTE_BASE_IMAGE"
 
 # 2. Build and tag all component images
 
@@ -57,9 +221,9 @@ SAUNAFS_VERSION="$SAUNAFS_VERSION" TAG_SUFFIX="$TAG_SUFFIX" BASE_IMAGE="$BASE_IM
 
 
 # 3. Push all images to your registry
-for component in master metalogger cgiserver chunkserver client; do
+for component in "${COMPONENTS[@]}"; do
   IMAGE="saunafs-$component:$SAUNAFS_VERSION-$TAG_SUFFIX"
-  REMOTE_IMAGE="$REGISTRY/saunafs-$component:$SAUNAFS_VERSION-$TAG_SUFFIX"
+  REMOTE_IMAGE="$REGISTRY/$PROJECT/saunafs-$component:$REMOTE_TAG"
   echo "Tagging $IMAGE as $REMOTE_IMAGE"
   docker tag "$IMAGE" "$REMOTE_IMAGE"
   echo "Pushing $REMOTE_IMAGE"

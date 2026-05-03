@@ -29,13 +29,14 @@ fi
 
 mkdir -p "${TARGET_DATA_DIR}"
 
-# Initialize metadata.sfs from the image's template if the data directory (volume) is empty.
-if [ ! "$(ls -A "${TARGET_DATA_DIR}")" ]; then
-	echo "Target data directory '${TARGET_DATA_DIR}' is empty. Initializing 'metadata.sfs' from image template '${IMAGE_METADATA_TEMPLATE_PATH}'..."
+# Initialize metadata.sfs whenever it is missing. The package may pre-create
+# other files in the data directory, so directory emptiness is not reliable.
+if [ ! -f "${TARGET_DATA_DIR}/metadata.sfs" ]; then
+	echo "'${TARGET_DATA_DIR}/metadata.sfs' not found. Initializing it from '${IMAGE_METADATA_TEMPLATE_PATH}'..."
 	cp -v "${IMAGE_METADATA_TEMPLATE_PATH}" "${TARGET_DATA_DIR}/metadata.sfs"
 	echo "'metadata.sfs' initialized."
 else
-	echo "Target data directory '${TARGET_DATA_DIR}' is not empty. Skipping 'metadata.sfs' initialization."
+	echo "Existing '${TARGET_DATA_DIR}/metadata.sfs' found."
 fi
 
 # Handle potential lock file from a previous unclean shutdown
