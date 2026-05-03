@@ -8,13 +8,17 @@ LABEL maintainer="hello@leil.io"
 RUN apt-get update && \
 	apt-get install -y --no-install-recommends \
 		ca-certificates \
+		curl \
 		dialog \
 		dirmngr \
 		gnupg \
 		grc \
 		iproute2 \
+		iptables \
 		iputils-ping \
 		nano \
+		netcat-openbsd \
+		tcpdump \
 		tmux \
 		util-linux \
 		vim \
