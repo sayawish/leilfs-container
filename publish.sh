@@ -200,6 +200,42 @@ REMOTE_BASE_IMAGE="$REGISTRY/$PROJECT/saunafs-base:$TAG_SUFFIX"
 REMOTE_TAG="ubuntu-$DISTRO-leilfs-$SAUNAFS_VERSION-$BRANCH"
 COMPONENTS=(master metalogger cgiserver chunkserver client)
 
+# Identify running containers that will be affected by this publication
+echo "Searching for running containers using Saunafs $SAUNAFS_VERSION on Ubuntu $DISTRO..."
+# We look for containers using images with both the version and distro in their tag/image name
+# Supporting both "distro-version" and "version-distro" formats
+MAP_VERSION_DISTRO=".*$SAUNAFS_VERSION.*$DISTRO.*|.*$DISTRO.*$SAUNAFS_VERSION.*"
+# We use docker inspect to check the original Config.Image name, which persists even if the local tag is deleted
+AFFECTED_CONTAINERS=$(docker ps -q | xargs -I {} docker inspect {} --format '{{.Image}} {{.Config.Image}} {{.Name}}' | grep -E "$MAP_VERSION_DISTRO" | awk '{print $NF}' | sed 's/^\///' || true)
+
+if [[ -n "$AFFECTED_CONTAINERS" ]]; then
+  echo "WARNING: The following containers are using images related to Saunafs $SAUNAFS_VERSION and Ubuntu $DISTRO:"
+  echo "$AFFECTED_CONTAINERS"
+  echo
+  echo "These containers should be stopped to ensure a clean deployment."
+  echo "press ENTER to continue..."
+  read 
+  if [[ -t 0 ]]; then
+    read -p "Do you want to stop these containers now? (y/N): " confirm
+    if [[ "$confirm" =~ ^[Yy]$ ]]; then
+      echo "Stopping and removing affected containers..."
+      docker rm -f $AFFECTED_CONTAINERS
+    else
+      echo "Proceeding without removing containers. Note that this might lead to stale cache or naming conflicts."
+    fi
+  else
+    echo "Non-interactive shell detected. Automatically removing affected containers..."
+    docker rm -f $AFFECTED_CONTAINERS
+  fi
+fi
+
+# Cleanup old local builds to ensure a fresh start
+echo "Cleaning up old local images for a clean rebuild..."
+for component in "${COMPONENTS[@]}"; do
+  docker rmi "saunafs-$component:$SAUNAFS_VERSION-$TAG_SUFFIX" 2>/dev/null || true
+done
+docker rmi "$BASE_IMAGE" 2>/dev/null || true
+
 # Docker login if credentials are present
 if [[ -n "$DOCKER_USER" && -n "$DOCKER_PASS" ]]; then
   printf "%s\n" "$DOCKER_PASS" | docker login "$REGISTRY" -u "$DOCKER_USER" --password-stdin
@@ -228,6 +264,11 @@ for component in "${COMPONENTS[@]}"; do
   docker tag "$IMAGE" "$REMOTE_IMAGE"
   echo "Pushing $REMOTE_IMAGE"
   docker push "$REMOTE_IMAGE"
+  echo "Removing local image $REMOTE_IMAGE to prevent stale cache"
+  docker rmi "$REMOTE_IMAGE" || true
 done
+
+echo "Removing local base image $REMOTE_BASE_IMAGE to prevent stale cache"
+docker rmi "$REMOTE_BASE_IMAGE" || true
 
 echo "Done."

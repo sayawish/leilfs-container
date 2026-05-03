@@ -57,7 +57,10 @@ print_summary_table() {
 
 export REGISTRY="${REGISTRY:-saywish-mini-al:443}"
 export PROJECT="${PROJECT:-leilfs}"
-export LEILFS_TAG="${LEILFS_TAG:-ubuntu-24.04-leilfs-5.9.0-1-main}"
+export SAUNAFS_VERSION="${SAUNAFS_VERSION:-5.9.0-1}"
+export DISTRO="${DISTRO:-24.04}"
+export BRANCH="${BRANCH:-$(git branch --show-current 2>/dev/null || echo "main")}"
+export LEILFS_TAG="${LEILFS_TAG:-ubuntu-${DISTRO}-leilfs-${SAUNAFS_VERSION}-${BRANCH}}"
 export LEILFS_SUBNET="${LEILFS_SUBNET:-172.32.0.0/24}"
 export FLOATING_IP="${FLOATING_IP:-172.32.0.250}"
 export MASTER1_IP="${MASTER1_IP:-172.32.0.251}"
